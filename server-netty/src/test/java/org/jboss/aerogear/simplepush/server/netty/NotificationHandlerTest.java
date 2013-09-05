@@ -101,6 +101,17 @@ public class NotificationHandlerTest {
         channel.close();
     }
 
+    @Test
+    public void notificationNonExistingUserAgentId() throws Exception {
+        final String uaid = UUIDUtil.newUAID();
+        final String channelId = UUID.randomUUID().toString();
+        final SimplePushServer simplePushServer = defaultPushServer();
+        final EmbeddedChannel channel = createWebsocketChannel(simplePushServer);
+        doRegister(channelId, uaid, simplePushServer);
+        doNotificationNonExistingUaid(channelId, uaid, simplePushServer.config().tokenKey(), 1L, channel);
+        channel.close();
+    }
+
     private SimplePushServer defaultPushServer() {
         return new DefaultSimplePushServer(new InMemoryDataStore(), DefaultSimplePushConfig.defaultConfig());
     }
@@ -130,6 +141,13 @@ public class NotificationHandlerTest {
             final Long version, final EmbeddedChannel channel) throws Exception {
         channel.writeInbound(notificationRequest(channelId, uaid, tokenKey, version));
 
+        // The response to the client that sent the notification request
+        final HttpResponse httpResponse = (HttpResponse) channel.readOutbound();
+        assertThat(httpResponse.getStatus().code(), equalTo(200));
+
+        // Give the thread some time to process the notification.
+        Thread.sleep(1000);
+
         // The notification destined for the connected channel
         final NotificationMessageImpl notification = responseToType(channel.readOutbound(), NotificationMessageImpl.class);
         assertThat(notification.getMessageType(), is(MessageType.Type.NOTIFICATION));
@@ -137,7 +155,12 @@ public class NotificationHandlerTest {
         assertThat(notification.getUpdates().iterator().next().getChannelId(), equalTo(channelId));
         assertThat(notification.getUpdates().iterator().next().getVersion(), equalTo(version));
 
-        // The response to the client that sent the notification request
+        return httpResponse;
+    }
+
+    private HttpResponse doNotificationNonExistingUaid(final String channelId, final String uaid, final byte[] tokenKey,
+            final Long version, final EmbeddedChannel channel) throws Exception {
+        channel.writeInbound(notificationRequest(channelId, uaid, tokenKey, version));
         final HttpResponse httpResponse = (HttpResponse) channel.readOutbound();
         assertThat(httpResponse.getStatus().code(), equalTo(200));
         return httpResponse;

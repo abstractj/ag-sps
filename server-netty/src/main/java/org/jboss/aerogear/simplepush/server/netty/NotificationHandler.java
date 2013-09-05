@@ -25,7 +25,6 @@ import static io.netty.handler.codec.http.HttpVersion.HTTP_1_1;
 import static org.jboss.aerogear.simplepush.protocol.impl.json.JsonUtil.toJson;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
-import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.codec.http.DefaultFullHttpResponse;
@@ -36,10 +35,10 @@ import io.netty.handler.codec.sockjs.SessionContext;
 import io.netty.handler.codec.sockjs.transports.Transports;
 import io.netty.util.CharsetUtil;
 import io.netty.util.ReferenceCountUtil;
-import io.netty.util.concurrent.Future;
-import io.netty.util.concurrent.GenericFutureListener;
 
 import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import org.jboss.aerogear.simplepush.protocol.NotificationMessage;
 import org.jboss.aerogear.simplepush.server.SimplePushServer;
@@ -58,9 +57,11 @@ public class NotificationHandler extends SimpleChannelInboundHandler<Object> {
     private final Logger logger = LoggerFactory.getLogger(NotificationHandler.class);
 
     private final SimplePushServer simplePushServer;
+    private final ExecutorService executorService;
 
     public NotificationHandler(final SimplePushServer simplePushServer) {
         this.simplePushServer = simplePushServer;
+        executorService = Executors.newCachedThreadPool();
     }
 
     @Override
@@ -85,8 +86,8 @@ public class NotificationHandler extends SimpleChannelInboundHandler<Object> {
         }
         final String requestUri = req.getUri();
         final String endpoint = requestUri.substring(requestUri.lastIndexOf('/') + 1);
-        final Future<Void> future = ctx.channel().eventLoop().submit(new Notifier(endpoint, req.content()));
-        future.addListener(new NotificationFutureListener(ctx.channel(), req));
+        executorService.submit(new Notifier(endpoint, req.content()));
+        sendHttpResponse(OK, req, ctx.channel());
     }
 
     private boolean isHttpRequestValid(final FullHttpRequest request, final Channel channel) {
@@ -104,7 +105,7 @@ public class NotificationHandler extends SimpleChannelInboundHandler<Object> {
     private void sendHttpResponse(final HttpResponseStatus status, final FullHttpRequest request, final Channel channel) {
         final FullHttpResponse response = new DefaultFullHttpResponse(HTTP_1_1, status);
         Transports.writeContent(response, response.getStatus().toString(), Transports.CONTENT_TYPE_HTML);
-        channel.writeAndFlush(response).addListener(ChannelFutureListener.CLOSE);
+        channel.writeAndFlush(response);//.addListener(ChannelFutureListener.CLOSE);
     }
 
     private class Notifier implements Callable<Void> {
@@ -122,40 +123,25 @@ public class NotificationHandler extends SimpleChannelInboundHandler<Object> {
         public Void call() throws Exception {
             try {
                 final EndpointParam endpointParam = CryptoUtil.decryptEndpoint(simplePushServer.config().tokenKey(), endpoint);
+                final SessionContext session = userAgents.get(endpointParam.uaid()).context();
                 final String payload = content.toString(CharsetUtil.UTF_8);
                 logger.info("UserAgent [" + endpointParam.uaid() + "] Notification [" + endpointParam.channelId() + ", " + payload + "]");
                 final NotificationMessage notification = simplePushServer.handleNotification(endpointParam.channelId(), endpointParam.uaid(), payload);
-                final SessionContext session = userAgents.get(endpointParam.uaid()).context();
                 session.send(toJson(notification));
                 userAgents.updateAccessedTime(endpointParam.uaid());
-                return null;
-            } finally {
-                content.release();
-            }
-        }
-    }
-
-    private class NotificationFutureListener implements GenericFutureListener<Future<Void>> {
-
-        private Channel channel;
-        private FullHttpRequest request;
-
-        private NotificationFutureListener(final Channel channel, final FullHttpRequest request) {
-            this.channel = channel;
-            this.request = request;
-        }
-
-        @Override
-        public void operationComplete(Future<Void> future) throws Exception {
-            if (future.cause() != null) {
-                if (future.cause() instanceof ChannelNotFoundException) {
-                    final ChannelNotFoundException cne = (ChannelNotFoundException) future.cause();
+            } catch (final Exception e) {
+                if (e instanceof ChannelNotFoundException) {
+                    final ChannelNotFoundException cne = (ChannelNotFoundException) e;
                     logger.warn("Could not find channel [" + cne.channelId() + "]");
                 } else {
-                    logger.error("Error while processing notifiation:", future.cause());
+                    logger.error("Error while processing notifiation:", e);
                 }
+
             }
-            sendHttpResponse(OK, request, channel);
+            finally {
+                content.release();
+            }
+            return null;
         }
     }
 
