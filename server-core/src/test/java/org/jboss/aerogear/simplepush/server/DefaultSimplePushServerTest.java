@@ -97,6 +97,44 @@ public class DefaultSimplePushServerTest {
     }
 
     @Test
+    public void handleHandshakeWithExistingAndEmptyChannelIDsInHello() throws ChannelNotFoundException {
+        final Set<String> channelIds = new HashSet<String>(Arrays.asList("channel1", "channel2"));
+        final String uaid = UUIDUtil.newUAID();
+        final HelloMessage firstHello = new HelloMessageImpl(uaid, channelIds);
+        final HelloResponse firstResponse = server.handleHandshake(firstHello);
+        assertThat(firstResponse.getUAID(), equalTo(uaid));
+        assertThat(server.hasChannel("channel1"), is(true));
+        assertThat(server.hasChannel("channel2"), is(true));
+
+        final Set<String> newChannelIds = Collections.emptySet();
+        final HelloMessage nextHello = new HelloMessageImpl(uaid, newChannelIds);
+        final HelloResponse secondResponse = server.handleHandshake(nextHello);
+        assertThat(secondResponse.getUAID(), equalTo(uaid));
+        assertThat(server.hasChannel("channel1"), is(false));
+        assertThat(server.hasChannel("channel2"), is(false));
+    }
+
+    @Test
+    public void handleHandshakeWithExistingAndNewChannels() throws ChannelNotFoundException {
+        final Set<String> channelIds = new HashSet<String>(Arrays.asList("channel1", "channel2"));
+        final String uaid = UUIDUtil.newUAID();
+        final HelloMessage firstHello = new HelloMessageImpl(uaid, channelIds);
+        final HelloResponse firstResponse = server.handleHandshake(firstHello);
+        assertThat(firstResponse.getUAID(), equalTo(uaid));
+        assertThat(server.hasChannel("channel1"), is(true));
+        assertThat(server.hasChannel("channel2"), is(true));
+
+        final Set<String> newChannelIds = new HashSet<String>(Arrays.asList("channel3", "channel4"));
+        final HelloMessage nextHello = new HelloMessageImpl(uaid, newChannelIds);
+        final HelloResponse secondResponse = server.handleHandshake(nextHello);
+        assertThat(secondResponse.getUAID(), equalTo(uaid));
+        assertThat(server.hasChannel("channel1"), is(false));
+        assertThat(server.hasChannel("channel2"), is(false));
+        assertThat(server.hasChannel("channel3"), is(true));
+        assertThat(server.hasChannel("channel4"), is(true));
+    }
+
+    @Test
     public void handleHandshakeWithChannelsButNoUaid() {
         final Set<String> channelIds = new HashSet<String>(Arrays.asList("channel1", "channel2"));
         final HelloMessage handshakeImpl = new HelloMessageImpl(null, channelIds);

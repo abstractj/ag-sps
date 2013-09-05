@@ -63,8 +63,17 @@ public class DefaultSimplePushServer implements SimplePushServer {
 
     @Override
     public HelloResponse handleHandshake(final HelloMessage handshake) {
-        for (String channelId : handshake.getChannelIds()) {
-            store.saveChannel(new DefaultChannel(handshake.getUAID(), channelId, makeEndpointUrl(handshake.getUAID(), channelId)));
+        final Set<String> newChannelIds = handshake.getChannelIds();
+        final Set<String> unusedChannels = store.getChannelIds(handshake.getUAID());
+        for (String channelId : newChannelIds) {
+            if (!hasChannel(channelId)) {
+                store.saveChannel(new DefaultChannel(handshake.getUAID(), channelId, makeEndpointUrl(handshake.getUAID(), channelId)));
+            } else {
+                unusedChannels.remove(channelId);
+            }
+        }
+        for (String channelId : unusedChannels) {
+            store.removeChannel(channelId);
         }
         return new HelloResponseImpl(handshake.getUAID());
     }

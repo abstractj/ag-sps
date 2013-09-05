@@ -108,6 +108,22 @@ public final class JpaDataStore implements DataStore {
     }
 
     @Override
+    public Set<String> getChannelIds(final String uaid) {
+        final JpaOperation<Set<String>> getChannelIds = new JpaOperation<Set<String>>() {
+            @Override
+            public Set<String> perform(final EntityManager em) {
+                final Set<String> channels = new HashSet<String>();
+                final UserAgentDTO ua = em.find(UserAgentDTO.class, uaid);
+                for (ChannelDTO dto : ua.getChannels()) {
+                    channels.add(dto.getChannelId());
+                }
+                return channels;
+            }
+        };
+        return jpaExecutor.execute(getChannelIds);
+    }
+
+    @Override
     public void removeChannels(final String uaid) {
         final JpaOperation<Void> removeChannels = new JpaOperation<Void>() {
             @Override

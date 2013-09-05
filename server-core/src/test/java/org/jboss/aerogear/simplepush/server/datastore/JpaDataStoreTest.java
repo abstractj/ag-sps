@@ -70,6 +70,17 @@ public class JpaDataStoreTest {
         assertThat(channel.getPushEndpoint(), equalTo("/endpoint/" + channelId));
     }
 
+    @Test
+    public void getChannels() throws ChannelNotFoundException {
+        final String uaid = UUIDUtil.newUAID();
+        final String channelId1 = UUID.randomUUID().toString();
+        final String channelId2 = UUID.randomUUID().toString();
+        jpaDataStore.saveChannel(newChannel(uaid, channelId1, 10L));
+        jpaDataStore.saveChannel(newChannel(uaid, channelId2, 10L));
+        final Set<String> channels = jpaDataStore.getChannelIds(uaid);
+        assertThat(channels.size(), is(2));
+    }
+
     @Test (expected = ChannelNotFoundException.class)
     public void shouldThrowIfChannelIdNotFound() throws ChannelNotFoundException {
         jpaDataStore.getChannel("doesNotExistId");
