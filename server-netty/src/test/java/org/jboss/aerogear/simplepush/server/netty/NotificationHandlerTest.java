@@ -31,7 +31,10 @@ import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.sockjs.SessionContext;
 import io.netty.util.CharsetUtil;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 
 import org.jboss.aerogear.simplepush.protocol.MessageType;
 import org.jboss.aerogear.simplepush.protocol.RegisterResponse;
@@ -139,22 +142,34 @@ public class NotificationHandlerTest {
 
     private HttpResponse doNotification(final String channelId, final String uaid, final byte[] tokenKey,
             final Long version, final EmbeddedChannel channel) throws Exception {
+        HttpResponse httpResponse = null;
         channel.writeInbound(notificationRequest(channelId, uaid, tokenKey, version));
 
         // The response to the client that sent the notification request
-        final HttpResponse httpResponse = (HttpResponse) channel.readOutbound();
-        assertThat(httpResponse.getStatus().code(), equalTo(200));
-
-        // Give the thread some time to process the notification.
-        Thread.sleep(1000);
-
-        // The notification destined for the connected channel
-        final NotificationMessageImpl notification = responseToType(channel.readOutbound(), NotificationMessageImpl.class);
-        assertThat(notification.getMessageType(), is(MessageType.Type.NOTIFICATION));
-        assertThat(notification.getUpdates().size(), is(1));
-        assertThat(notification.getUpdates().iterator().next().getChannelId(), equalTo(channelId));
-        assertThat(notification.getUpdates().iterator().next().getVersion(), equalTo(version));
-
+        final CountDownLatch countDownLatch = new CountDownLatch(2);
+        final List<Object> readObjects = new ArrayList<Object>();
+        while (countDownLatch.getCount() != 2) {
+            final Object o = channel.readOutbound();
+            if (o == null) {
+                Thread.sleep(200);
+            } else {
+                readObjects.add(o);
+                countDownLatch.countDown();
+            }
+        }
+        for (Object object : readObjects) {
+            if (object instanceof HttpResponse) {
+                httpResponse = (HttpResponse) object;
+                assertThat(httpResponse.getStatus().code(), equalTo(200));
+            } else {
+                // The notification destined for the connected channel
+                final NotificationMessageImpl notification = responseToType(object, NotificationMessageImpl.class);
+                assertThat(notification.getMessageType(), is(MessageType.Type.NOTIFICATION));
+                assertThat(notification.getUpdates().size(), is(1));
+                assertThat(notification.getUpdates().iterator().next().getChannelId(), equalTo(channelId));
+                assertThat(notification.getUpdates().iterator().next().getVersion(), equalTo(version));
+            }
+        }
         return httpResponse;
     }
 
