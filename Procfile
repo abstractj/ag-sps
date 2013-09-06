@@ -1,0 +1,1 @@
+web:    java -cp target/classes:target/test-classes:target/dependency/* org.jboss.aerogear.simplepush.server.netty.NettySockJSServer
