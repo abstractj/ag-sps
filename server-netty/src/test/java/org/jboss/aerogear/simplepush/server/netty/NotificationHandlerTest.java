@@ -32,13 +32,16 @@ import io.netty.handler.codec.sockjs.SessionContext;
 import io.netty.util.CharsetUtil;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 
 import org.jboss.aerogear.simplepush.protocol.MessageType;
 import org.jboss.aerogear.simplepush.protocol.RegisterResponse;
 import org.jboss.aerogear.simplepush.protocol.impl.NotificationMessageImpl;
+import org.jboss.aerogear.simplepush.protocol.impl.Notifications;
 import org.jboss.aerogear.simplepush.protocol.impl.RegisterMessageImpl;
 import org.jboss.aerogear.simplepush.protocol.impl.json.JsonUtil;
 import org.jboss.aerogear.simplepush.server.DefaultSimplePushServer;
@@ -115,6 +118,23 @@ public class NotificationHandlerTest {
         channel.close();
     }
 
+    @Test
+    public void notifications() throws Exception {
+        final String uaid = UUIDUtil.newUAID();
+        final String channelId1 = UUID.randomUUID().toString();
+        final String channelId2 = UUID.randomUUID().toString();
+        final SimplePushServer simplePushServer = defaultPushServer();
+        final EmbeddedChannel channel = createWebsocketChannel(simplePushServer);
+        registerUserAgent(uaid, channel);
+        doRegister(channelId1, uaid, simplePushServer);
+        doRegister(channelId2, uaid, simplePushServer);
+
+        final Set<String> pushEndpoints = new HashSet<String>();
+        pushEndpoints.add(CryptoUtil.encrypt(simplePushServer.config().tokenKey(), uaid + "." + channelId1));
+        pushEndpoints.add(CryptoUtil.encrypt(simplePushServer.config().tokenKey(), uaid + "." + channelId2));
+        doNotifications(pushEndpoints, uaid, simplePushServer.config().tokenKey(), 1L, channel);
+    }
+
     private SimplePushServer defaultPushServer() {
         return new DefaultSimplePushServer(new InMemoryDataStore(), DefaultSimplePushConfig.defaultConfig());
     }
@@ -137,6 +157,13 @@ public class NotificationHandlerTest {
         final String encrypted = CryptoUtil.encrypt(tokenKey, uaid + "." + channelId);
         final FullHttpRequest req = new DefaultFullHttpRequest(HTTP_1_1, HttpMethod.PUT, "/update/" + encrypted);
         req.content().writeBytes(Unpooled.copiedBuffer("version=" + version.toString(), CharsetUtil.UTF_8));
+        return req;
+    }
+
+    private FullHttpRequest notificationRequests(final Set<String> endpoints, final String uaid, final byte[] tokenKey, final Long version) throws Exception {
+        final FullHttpRequest req = new DefaultFullHttpRequest(HTTP_1_1, HttpMethod.PUT, "/update");
+        final String json = JsonUtil.toJson(new Notifications(String.valueOf(version), endpoints));
+        req.content().writeBytes(Unpooled.copiedBuffer(json.toString(), CharsetUtil.UTF_8));
         return req;
     }
 
@@ -167,6 +194,39 @@ public class NotificationHandlerTest {
                 assertThat(notification.getMessageType(), is(MessageType.Type.NOTIFICATION));
                 assertThat(notification.getUpdates().size(), is(1));
                 assertThat(notification.getUpdates().iterator().next().getChannelId(), equalTo(channelId));
+                assertThat(notification.getUpdates().iterator().next().getVersion(), equalTo(version));
+            }
+        }
+        return httpResponse;
+    }
+
+    private HttpResponse doNotifications(final Set<String> endpoints, final String uaid, final byte[] tokenKey,
+            final Long version, final EmbeddedChannel channel) throws Exception {
+        HttpResponse httpResponse = null;
+        channel.writeInbound(notificationRequests(endpoints, uaid, tokenKey, version));
+
+        // The response to the client that sent the notification request
+        final CountDownLatch countDownLatch = new CountDownLatch(2);
+        final List<Object> readObjects = new ArrayList<Object>();
+        while (countDownLatch.getCount() != 2) {
+            final Object o = channel.readOutbound();
+            if (o == null) {
+                Thread.sleep(200);
+            } else {
+                readObjects.add(o);
+                countDownLatch.countDown();
+            }
+        }
+        for (Object object : readObjects) {
+            if (object instanceof HttpResponse) {
+                httpResponse = (HttpResponse) object;
+                assertThat(httpResponse.getStatus().code(), equalTo(200));
+            } else {
+                // The notification destined for the connected channel
+                final NotificationMessageImpl notification = responseToType(object, NotificationMessageImpl.class);
+                assertThat(notification.getMessageType(), is(MessageType.Type.NOTIFICATION));
+                assertThat(notification.getUpdates().size(), is(1));
+                //assertThat(notification.getUpdates().iterator().next().getChannelId(), equalTo(channelId));
                 assertThat(notification.getUpdates().iterator().next().getVersion(), equalTo(version));
             }
         }

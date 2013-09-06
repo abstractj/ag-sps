@@ -113,9 +113,11 @@ public final class JpaDataStore implements DataStore {
             @Override
             public Set<String> perform(final EntityManager em) {
                 final Set<String> channels = new HashSet<String>();
-                final UserAgentDTO ua = em.find(UserAgentDTO.class, uaid);
-                for (ChannelDTO dto : ua.getChannels()) {
-                    channels.add(dto.getChannelId());
+                final UserAgentDTO userAgent = em.find(UserAgentDTO.class, uaid);
+                if (userAgent != null) {
+                    for (ChannelDTO dto : userAgent.getChannels()) {
+                        channels.add(dto.getChannelId());
+                    }
                 }
                 return channels;
             }

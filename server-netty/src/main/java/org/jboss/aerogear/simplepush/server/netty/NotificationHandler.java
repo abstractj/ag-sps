@@ -23,6 +23,7 @@ import static io.netty.handler.codec.http.HttpResponseStatus.FORBIDDEN;
 import static io.netty.handler.codec.http.HttpResponseStatus.OK;
 import static io.netty.handler.codec.http.HttpVersion.HTTP_1_1;
 import static org.jboss.aerogear.simplepush.protocol.impl.json.JsonUtil.toJson;
+import static org.jboss.aerogear.simplepush.protocol.impl.json.JsonUtil.fromJson;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
@@ -41,6 +42,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import org.jboss.aerogear.simplepush.protocol.NotificationMessage;
+import org.jboss.aerogear.simplepush.protocol.impl.Notifications;
 import org.jboss.aerogear.simplepush.server.SimplePushServer;
 import org.jboss.aerogear.simplepush.server.datastore.ChannelNotFoundException;
 import org.jboss.aerogear.simplepush.util.CryptoUtil;
@@ -84,9 +86,7 @@ public class NotificationHandler extends SimpleChannelInboundHandler<Object> {
         if (!isHttpRequestValid(req, ctx.channel())) {
             return;
         }
-        final String requestUri = req.getUri();
-        final String endpoint = requestUri.substring(requestUri.lastIndexOf('/') + 1);
-        executorService.submit(new Notifier(endpoint, req.content()));
+        executorService.submit(new Notifier(req.getUri(), req.content()));
         sendHttpResponse(OK, req, ctx.channel());
     }
 
@@ -122,10 +122,29 @@ public class NotificationHandler extends SimpleChannelInboundHandler<Object> {
         @Override
         public Void call() throws Exception {
             try {
-                final EndpointParam endpointParam = CryptoUtil.decryptEndpoint(simplePushServer.config().tokenKey(), endpoint);
+                if (endpoint.equals(simplePushServer.config().endpointPrefix())) {
+                    final Notifications notifications = fromJson(content.toString(CharsetUtil.UTF_8), Notifications.class);
+                    logger.info("Notifications [" + notifications + "]");
+                    final String payload = "version=" + notifications.getVersion();
+                    for (String pushEndpoint : notifications.getPushEndpoints()) {
+                        processNotification(pushEndpoint, payload);
+                    }
+                } else {
+                    final String pushEndpoint = endpoint.substring(endpoint.lastIndexOf('/') + 1);
+                    final String payload = content.toString(CharsetUtil.UTF_8);
+                    processNotification(pushEndpoint, payload);
+                }
+            }
+            finally {
+                content.release();
+            }
+            return null;
+        }
+
+        private void processNotification(final String pushEndpoint, final String payload) throws Exception {
+            try {
+                final EndpointParam endpointParam = CryptoUtil.decryptEndpoint(simplePushServer.config().tokenKey(), pushEndpoint);
                 final SessionContext session = userAgents.get(endpointParam.uaid()).context();
-                final String payload = content.toString(CharsetUtil.UTF_8);
-                logger.info("UserAgent [" + endpointParam.uaid() + "] Notification [" + endpointParam.channelId() + ", " + payload + "]");
                 final NotificationMessage notification = simplePushServer.handleNotification(endpointParam.channelId(), endpointParam.uaid(), payload);
                 session.send(toJson(notification));
                 userAgents.updateAccessedTime(endpointParam.uaid());
@@ -134,15 +153,11 @@ public class NotificationHandler extends SimpleChannelInboundHandler<Object> {
                     final ChannelNotFoundException cne = (ChannelNotFoundException) e;
                     logger.warn("Could not find channel [" + cne.channelId() + "]");
                 } else {
-                    logger.error("Error while processing notifiation:", e);
+                    logger.debug("Error while processing notifiation:", e);
                 }
-
             }
-            finally {
-                content.release();
-            }
-            return null;
         }
+
     }
 
 }

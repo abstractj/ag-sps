@@ -49,6 +49,7 @@ import org.jboss.aerogear.simplepush.protocol.impl.AckMessageImpl;
 import org.jboss.aerogear.simplepush.protocol.impl.HelloMessageImpl;
 import org.jboss.aerogear.simplepush.protocol.impl.HelloResponseImpl;
 import org.jboss.aerogear.simplepush.protocol.impl.NotificationMessageImpl;
+import org.jboss.aerogear.simplepush.protocol.impl.Notifications;
 import org.jboss.aerogear.simplepush.protocol.impl.PingMessageImpl;
 import org.jboss.aerogear.simplepush.protocol.impl.RegisterMessageImpl;
 import org.jboss.aerogear.simplepush.protocol.impl.RegisterResponseImpl;
@@ -88,6 +89,7 @@ public final class JsonUtil {
 
         module.addDeserializer(NotificationMessageImpl.class, new NotificationDeserializer());
         module.addSerializer(NotificationMessageImpl.class, new NotificationSerializer());
+        module.addDeserializer(Notifications.class, new NotificationsDeserializer());
 
         module.addDeserializer(UnregisterMessageImpl.class, new UnregisterDeserializer());
         module.addSerializer(UnregisterMessageImpl.class, new UnregisterMessageSerializer());
@@ -346,6 +348,25 @@ public final class JsonUtil {
             }
             jgen.writeEndArray();
             jgen.writeEndObject();
+        }
+    }
+
+    private static class NotificationsDeserializer extends JsonDeserializer<Notifications> {
+
+        @Override
+        public Notifications deserialize(final JsonParser jp, final DeserializationContext ctxt) throws IOException,
+                JsonProcessingException {
+            final ObjectCodec oc = jp.getCodec();
+            final JsonNode node = oc.readTree(jp);
+            final JsonNode versionNode = node.get("version");
+            final JsonNode pushEndpointsNode = node.get("pushEndpoints");
+            final Set<String> pushEndpoints = new HashSet<String>();
+            if (pushEndpointsNode.isArray()) {
+                for (JsonNode pushEndpoint : pushEndpointsNode) {
+                    pushEndpoints.add(pushEndpoint.asText());
+                }
+            }
+            return new Notifications(versionNode.asText(), pushEndpoints);
         }
     }
 

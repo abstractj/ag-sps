@@ -81,6 +81,13 @@ public class JpaDataStoreTest {
         assertThat(channels.size(), is(2));
     }
 
+    @Test
+    public void getChannelsNoUserAgent() throws ChannelNotFoundException {
+        final String uaid = UUIDUtil.newUAID();
+        final Set<String> channels = jpaDataStore.getChannelIds(uaid);
+        assertThat(channels.isEmpty(), is(true));
+    }
+
     @Test (expected = ChannelNotFoundException.class)
     public void shouldThrowIfChannelIdNotFound() throws ChannelNotFoundException {
         jpaDataStore.getChannel("doesNotExistId");
